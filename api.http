@@ -1,0 +1,57 @@
+### ========== ADMIN FLOW ==========
+@host = http://localhost:8081
+@ts = {{$timestamp}}
+
+### 1) Admin login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "email":"admin@eventbooker.rs", "password":"admin123" }
+
+### 2) Admin kreira novu kategoriju
+POST {{host}}/api/categories
+Content-Type: application/json
+
+{
+  "name":"Kategorija-{{ts}}",
+  "description":"Test kategorija {{ts}}"
+}
+
+### 3) List korisnika (ADMIN only, 200)
+GET {{host}}/api/users?page=1&size=10
+
+### 4) Logout admin
+POST {{host}}/api/auth/logout
+
+
+### ========== CREATOR FLOW ==========
+### 5) Creator login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "email":"creator1@eventbooker.rs", "password":"lozinka123" }
+
+### 6) Creator kreira event u poslednjoj (gore napr.) kategoriji
+# ako ne znaš ID, privremeno koristi 1 ili pročitaj /api/categories i izaberi
+POST {{host}}/api/ems/events
+Content-Type: application/json
+
+{
+  "title":"Koncert {{ts}}",
+  "description":"Opis {{ts}}",
+  "scheduledAt":"2025-12-31T20:30:00",
+  "location":"Beograd Arena",
+  "maxCapacity": 50,
+  "categoryId": 1,
+  "tags": ["muzika","rock"]
+}
+
+### 7) Public list/filter radi
+GET {{host}}/api/events?page=1&size=5&tag=rock
+
+### 8) Creator vidi svoje RSVP-ove (trebalo bi 200, autor ili ADMIN)
+# Stavi pravi eventId iz odgovora kreiranja (ili isprobaj sa 1 ako već postoji)
+GET {{host}}/api/ems/events/1/rsvps?page=1&size=10
+
+### 9) Logout creator
+POST {{host}}/api/auth/logout

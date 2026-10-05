@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="sr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EventBooker</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        :root {
+            --bg: #0b0f17; --card: #121826; --text: #e6edf6; --muted: #8aa0b8; --brand: #3b82f6; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+            --border: #22304a;
+        }
+        * { box-sizing: border-box }
+        body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background: var(--bg); color: var(--text); }
+        a { color: inherit; text-decoration: none }
+        .container { max-width: 1100px; margin: 0 auto; padding: 16px }
+        .nav { position: sticky; top:0; z-index: 20; backdrop-filter: blur(6px); background: rgba(11,15,23,.6); border-bottom: 1px solid var(--border) }
+        .nav-inner { display:flex; align-items:center; gap:14px; padding: 12px 16px }
+        .brand { font-weight: 700; letter-spacing: .3px }
+        .spacer { flex:1 }
+        .btn, button { cursor:pointer; border:1px solid var(--border); background: linear-gradient(180deg,#1b2436,#141a2a); color: var(--text); padding:8px 12px; border-radius:10px; font-weight:600 }
+        .btn:hover { filter: brightness(1.07) }
+        .btn.secondary { background: transparent }
+        .btn.ghost { background: transparent; border-color: transparent }
+        .badge { display:inline-block; padding: 3px 8px; border-radius: 999px; background: #192335; color: var(--muted); border:1px solid var(--border); font-size: 12px }
+        .grid { display:grid; gap:16px }
+        .grid.cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) }
+        .card { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:16px }
+        .row { display:flex; gap:12px; align-items:center }
+        .row.wrap { flex-wrap:wrap }
+        .muted { color: var(--muted) }
+        .field { display:flex; flex-direction:column; gap:6px }
+        input, select, textarea { background:#0e1422; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:10px }
+        textarea { min-height: 100px }
+        .table { width:100%; border-collapse: collapse; font-size:14px }
+        .table th, .table td { border-bottom:1px solid var(--border); padding:10px; text-align:left }
+        .table th { color: var(--muted); font-weight:600 }
+        .pill { border:1px solid var(--border); padding:2px 8px; border-radius:999px; font-size:12px; color:var(--muted) }
+        .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+        .kpi { display:flex; gap:12px; align-items:center; background:#0e1422; border:1px solid var(--border); padding:8px 12px; border-radius:12px }
+        .kpi .num { font-weight:800; font-size:18px }
+        .toast { position: fixed; right: 16px; bottom: 16px; background:#111827; border:1px solid var(--border); padding:12px 14px; border-radius:10px; box-shadow: 0 8px 30px rgba(0,0,0,.35); min-width: 260px }
+        .toast.ok { border-color: rgba(34,197,94,.5) }
+        .toast.err { border-color: rgba(239,68,68,.5) }
+        .pagination { display:flex; gap:4px }
+        .pagination button { padding:6px 10px }
+        .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0 }
+
+        .layout { display:grid; grid-template-columns: 1fr 300px; gap:16px; align-items:start }
+        .aside { position: sticky; top: 84px; height: fit-content }
+        @media (max-width: 900px){
+            .layout { grid-template-columns: 1fr }
+            .aside { position: static }
+        }
+        .trend-list { display:grid; gap:10px }
+        .trend-item { display:flex; gap:10px; align-items:flex-start; padding:8px; border-radius:12px; border:1px solid var(--border); background:#0e1422 }
+        .trend-item:hover { filter: brightness(1.06) }
+        .trend-rank { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:999px; border:1px solid var(--border); font-weight:800 }
+        .trend-title { margin:0 0 4px 0; font-weight:700; font-size:14px }
+        .small { font-size:12px; color:var(--muted) }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+
+    const api = {
+        async req(path, opts={}){
+            const res = await fetch(path, { credentials: 'include', headers: { 'Content-Type':'application/json', ...(opts.headers||{}) }, ...opts });
+            const ct = res.headers.get('content-type')||'';
+            const isJson = ct.includes('application/json');
+            const data = isJson ? await res.json().catch(()=>null) : await res.text();
+            if (!res.ok) throw { status:res.status, data };
+            return data;
+        },
+        get(p){ return this.req(p) },
+        post(p, body){ return this.req(p, { method:'POST', body: JSON.stringify(body||{}) }) },
+        put(p, body){ return this.req(p, { method:'PUT', body: JSON.stringify(body||{}) }) },
+        patch(p, body){ return this.req(p, { method:'PATCH', body: JSON.stringify(body||{}) }) },
+        del(p, body){ return this.req(p, { method:'DELETE', body: body?JSON.stringify(body):undefined }) },
+    };
+
+
+    const fmtDate = (s) => s ? new Date(s).toLocaleString() : '';
+    const toLocalInputValue = (s) => {
+        if (!s) return '';
+        const d = new Date(s);
+        const pad = n => String(n).padStart(2,'0');
+        const y = d.getFullYear(), m = pad(d.getMonth()+1), day = pad(d.getDate());
+        const hh = pad(d.getHours()), mm = pad(d.getMinutes()), ss = pad(d.getSeconds());
+        return `${y}-${m}-${day}T${hh}:${mm}:${ss}`;
+    };
+    const splitLocalDateTime = (s) => {
+        if (!s) return { date:'', time:'' };
+        const d = new Date(s);
+        const pad = n => String(n).padStart(2,'0');
+        return {
+            date: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,
+            time: `${pad(d.getHours())}:${pad(d.getMinutes())}`
+        };
+    };
+    const combineLocal = (date, time) => {
+        if (!date || !time) return '';
+        const t = time.length === 5 ? `${time}:00` : time; // dodaj sekunde ako nema
+        return `${date}T${t}`;
+    };
+    const cls = (...xs) => xs.filter(Boolean).join(' ');
+    const useHashRoute = () => {
+        const [route, setRoute] = useState(window.location.hash.slice(1) || '/');
+        useEffect(()=>{ const on = ()=> setRoute(window.location.hash.slice(1) || '/'); window.addEventListener('hashchange', on); return ()=> window.removeEventListener('hashchange', on); },[]);
+        const push = (r)=> { if (r===route) window.dispatchEvent(new HashChangeEvent('hashchange')); else window.location.hash = r };
+        return [route, push];
+    }
+
+    //Global Toast
+    function useToast(){
+        const [t, setT] = useState(null);
+        const show = (msg, type='ok') => { setT({msg, type}); setTimeout(()=> setT(null), 2500) };
+        return { t, show };
+    }
+
+    //Komponenta: Trendi aside
+    function TrendingAside(){
+        const [items, setItems] = useState([]);
+        useEffect(()=>{ (async()=>{
+            try{
+                const r = await api.get('/api/home/most-reacted?limit=3');
+                setItems(r.items || []);
+            }catch(_){}
+        })() },[]);
+        return (
+            <aside className="aside" aria-label="Trendi događaji">
+                <div className="card">
+                    <h3 style={{marginTop:0}}>🔥 Trendi događaji</h3>
+                    <div className="trend-list">
+                        {items.length===0 && <p className="muted" style={{margin:0}}>Nema trendi događaja.</p>}
+                        {items.map((it, i)=>{
+                            const likes = it.likesCount ?? it.likes_count ?? 0;
+                            const dislikes = it.dislikesCount ?? it.dislikes_count ?? 0;
+                            const total = likes + dislikes;
+                            return (
+                                <a key={it.id} className="trend-item" href={`#/event/${it.id}`} title={`Otvori detalje: ${it.title}`}>
+                                    <div className="trend-rank">{i+1}</div>
+                                    <div style={{flex:1}}>
+                                        <div className="trend-title">{it.title}</div>
+                                        <div className="small">{fmtDate(it.scheduledAt||it.scheduled_at)} · {it.location}</div>
+                                        <div className="row wrap" style={{gap:6, marginTop:6}}>
+                                            <span className="pill">{total} reakcija</span>
+                                            <span className="pill">👍 {likes}</span>
+                                            <span className="pill">👎 {dislikes}</span>
+                                        </div>
+                                    </div>
+                                </a>
+                            );
+                        })}
+                    </div>
+                </div>
+            </aside>
+        );
+    }
+
+    //App
+    function App(){
+        const [route, push] = useHashRoute();
+        const [user, setUser] = useState(null); // {id, email, firstName, lastName, userType}
+        const [loadingUser, setLoadingUser] = useState(true);
+        const { t, show } = useToast();
+
+        useEffect(()=>{ (async()=>{
+            try { const me = await api.get('/api/auth/me'); setUser(me) } catch (_) { setUser(null) } finally { setLoadingUser(false) }
+        })() },[]);
+
+        const logout = async ()=> { try{ await api.post('/api/auth/logout'); setUser(null); show('Odjavljeni ste'); push('/login') }catch(e){ show('Greška pri odjavi','err') } };
+
+        if (loadingUser) return <div className="container"><p>Učitavanje…</p></div>;
+
+        return (
+            <>
+                <nav className="nav">
+                    <div className="nav-inner container">
+                        <a className="brand" href="#/">🎫 EventBooker</a>
+                        <a className="btn ghost" href="#/events">Događaji</a>
+                        <a className="btn ghost" href="#/categories">Kategorije</a>
+                        <div className="spacer"/>
+                        {user ? (
+                            <div className="row">
+                                {(user.userType==='ADMIN' || user.userType==='CREATOR') && <a className="btn ghost" href="#/ems/new-event">➕ Novi događaj</a>}
+                                {(user.userType==='ADMIN' || user.userType==='CREATOR') && <a className="btn ghost" href="#/ems/categories">EMS Kategorije</a>}
+                                {user.userType==='ADMIN' && <a className="btn ghost" href="#/admin/users">Korisnici</a>}
+                                <span className="pill">{user.firstName} {user.lastName} · {user.userType}</span>
+                                <button className="btn secondary" onClick={logout}>Odjava</button>
+                            </div>
+                        ) : (
+                            <div className="row">
+                                <a className="btn" href="#/login">Prijava</a>
+                            </div>
+                        )}
+                    </div>
+                </nav>
+
+                <main className="container" style={{paddingTop:20}}>
+                    {route==='/' && <Home />}
+                    {route.startsWith('/events') && <Events route={route} push={push} />}
+                    {route.startsWith('/event/') && <EventDetails id={route.split('/')[2]} user={user} />}
+                    {route==='/login' && <Login onSuccess={(u)=>{ setUser(u); show('Dobrodošli, ' + u.firstName + '!'); location.hash='/'; }} />}
+                    {route==='/categories' && <PublicCategories />}
+                    {route==='/ems/new-event' && <EmsNewEvent user={user} onCreated={(ev)=> location.hash='/event/'+ev.id} />}
+                    {route==='/ems/categories' && <EmsCategories user={user} />}
+                    {route==='/admin/users' && <AdminUsers user={user} />}
+                </main>
+
+                {t && <div className={cls('toast', t.type==='ok' ? 'ok':'err')} role="status">{t.msg}</div>}
+            </>
+        );
+    }
+
+    //Pages
+    function Login({ onSuccess }){
+        const [email,setEmail] = useState('admin@eventbooker.rs');
+        const [password,setPassword] = useState('admin123');
+        const [err,setErr] = useState(null);
+        const [busy,setBusy] = useState(false);
+
+        const submit = async (e)=>{
+            e.preventDefault(); setBusy(true); setErr(null);
+            try { const me = await api.post('/api/auth/login',{ email, password }); onSuccess(me) }
+            catch(ex){ setErr(ex?.data?.message||'Greška'); }
+            finally{ setBusy(false) }
+        }
+        return (
+            <div className="grid" style={{maxWidth:420, margin:'40px auto'}}>
+                <div className="card">
+                    <h2>Prijava</h2>
+                    <form className="grid" onSubmit={submit}>
+                        <label className="field">Email
+                            <input value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/>
+                        </label>
+                        <label className="field">Lozinka
+                            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required />
+                        </label>
+                        {err && <div className="badge" style={{borderColor:'rgba(239,68,68,.5)', color:'#fecaca', background:'#2a0f14'}}>{err}</div>}
+                        <button className="btn" disabled={busy}>{busy?'Prijavljivanje…':'Prijavi se'}</button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
+
+    function Home(){
+        const [recent,setRecent] = useState([]);
+        const [visited,setVisited] = useState([]);
+        const [reacted,setReacted] = useState([]);
+        const [cats,setCats] = useState([]);
+
+        const [q,setQ] = useState('');
+        const [catId,setCatId] = useState('');
+        const [view,setView] = useState('recent'); // 'recent' | 'visited' | 'reacted'
+
+        useEffect(()=>{ (async()=>{
+            const r = await api.get('/api/home/recent'); setRecent(r.items||[]);
+            const v = await api.get('/api/home/most-visited?days=30&limit=10'); setVisited(v.items||[]);
+            const m = await api.get('/api/home/most-reacted?limit=6'); setReacted(m.items||[]);
+            const cs = await api.get('/api/categories?page=1&size=200'); setCats(cs.items||[]);
+        })() },[]);
+
+        const matchText = (it) => {
+            if (!q.trim()) return true;
+            const needle = q.trim().toLowerCase();
+            return (it.title||'').toLowerCase().includes(needle) || (it.description||'').toLowerCase().includes(needle);
+        };
+        const matchCat = (it) => {
+            if (!catId) return true;
+            const cid = Number(catId);
+            const itemCat = (it.categoryId ?? it.category_id);
+            return Number(itemCat) === cid;
+        };
+
+        const recentFiltered   = useMemo(()=> (recent||[]).filter(it => matchText(it) && matchCat(it)), [recent, q, catId]);
+        const visitedFiltered  = useMemo(()=> (visited||[]).filter(it => matchText(it) && matchCat(it)), [visited, q, catId]);
+        const reactedFiltered  = useMemo(()=> (reacted||[]).filter(it => matchText(it) && matchCat(it)), [reacted, q, catId]);
+
+        const labelByView = { recent:'Najnoviji', visited:'Najposećeniji (30 dana)', reacted:'Najviše reakcija' };
+        const list = useMemo(()=> {
+            if (view==='recent') return recentFiltered;
+            if (view==='visited') return visitedFiltered;
+            return reactedFiltered;
+        }, [view, recentFiltered, visitedFiltered, reactedFiltered]);
+
+        return (
+            <div className="layout">
+                <div className="grid" style={{gap:24}}>
+                    <div className="card">
+                        <div className="toolbar">
+                            <input placeholder="Filtriraj po naslovu/opisu…" value={q} onChange={e=>setQ(e.target.value)} style={{minWidth:260}} />
+                            <select value={catId} onChange={e=>setCatId(e.target.value)}>
+                                <option value="">Sve kategorije</option>
+                                {cats.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <select value={view} onChange={e=>setView(e.target.value)}>
+                                <option value="recent">Najnoviji</option>
+                                <option value="visited">Najposećeniji (30 dana)</option>
+                                <option value="reacted">Najviše reakcija</option>
+                            </select>
+
+                            {(q || catId) && (
+                                <button className="btn secondary" onClick={()=>{ setQ(''); setCatId(''); }}>Resetuj filtere</button>
+                            )}
+                        </div>
+                    </div>
+
+                    <section>
+                        <div className="row"><h2 style={{margin:0}}>{labelByView[view]}</h2><span className="muted">({list.length})</span></div>
+                        <Cards events={list} />
+                    </section>
+                </div>
+
+                <TrendingAside/>
+            </div>
+        );
+    }
+
+
+    function Cards({ events }){
+        if (!events?.length) return <p className="muted">Nema stavki.</p>
+        return (
+            <div className="grid cards">
+                {events.map(e=> <EventCard key={e.id} e={e} />)}
+            </div>
+        );
+    }
+
+    function EventCard({ e }){
+        return (
+            <article className="card" aria-label={e.title}>
+                <div className="row" style={{justifyContent:'space-between'}}>
+                    <h3 style={{margin:'0 0 6px 0'}}>{e.title}</h3>
+                    <span className="badge">{fmtDate(e.scheduledAt||e.scheduled_at)}</span>
+                </div>
+                <p className="muted" style={{minHeight:40}}>{e.description?.slice(0,120)}{(e.description||'').length>120?'…':''}</p>
+                <div className="row wrap" style={{margin:'8px 0'}}>
+                    <span className="kpi"><span className="num">{e.viewsCount??e.views_count??0}</span> pregleda</span>
+                    <span className="kpi"><span className="num">{e.likesCount??e.likes_count??0}</span> 👍</span>
+                    <span className="kpi"><span className="num">{e.dislikesCount??e.dislikes_count??0}</span> 👎</span>
+                </div>
+                <div className="row" style={{justifyContent:'space-between'}}>
+                    <span className="muted">{e.location}</span>
+                    <a className="btn" href={`#/event/${e.id}`}>Detaljnije</a>
+                </div>
+            </article>
+        );
+    }
+
+    function Events({ route, push }){
+        const qs = new URLSearchParams(route.split('?')[1]||'');
+        const [q,setQ] = useState(qs.get('q')||'');
+        const [tag,setTag] = useState(qs.get('tag')||'');
+        const [page,setPage] = useState(parseInt(qs.get('page')||'1'));
+        const [size,setSize] = useState(10);
+        const [items,setItems] = useState([]);
+        const [total,setTotal] = useState(0);
+        const [cats,setCats] = useState([]);
+        const [catId,setCatId] = useState(qs.get('categoryId')||'');
+
+        useEffect(()=>{ (async()=>{ const cs = await api.get('/api/categories?page=1&size=200'); setCats(cs.items||[]) })() },[]);
+        useEffect(()=>{ (async()=>{
+            const url = new URL('/api/events', window.location.origin);
+            url.searchParams.set('page', page); url.searchParams.set('size', size);
+            if (q) url.searchParams.set('q', q);
+            if (tag) url.searchParams.set('tag', tag);
+            if (catId) url.searchParams.set('categoryId', catId);
+            const r = await api.get(url.toString());
+            setItems(r.items||[]); setTotal(r.total||0);
+        })() }, [q, tag, page, size, catId]);
+
+        const search = (e)=>{ e.preventDefault(); setPage(1); push(`/events?q=${encodeURIComponent(q)}&tag=${encodeURIComponent(tag)}&categoryId=${catId||''}&page=1`) };
+
+        return (
+            <div className="grid" style={{gap:16}}>
+                <div className="card">
+                    <form className="toolbar" onSubmit={search}>
+                        <input placeholder="Pretraga…" value={q} onChange={e=>setQ(e.target.value)} />
+                        <input placeholder="Tag (npr. rock)" value={tag} onChange={e=>setTag(e.target.value)} />
+                        <select value={catId} onChange={e=>setCatId(e.target.value)}>
+                            <option value="">Sve kategorije</option>
+                            {cats.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <button className="btn">Traži</button>
+                    </form>
+                </div>
+                <Cards events={items} />
+                <Pagination page={page} size={size} total={total} onChange={(p)=>{ setPage(p); push(`/events?q=${encodeURIComponent(q)}&tag=${encodeURIComponent(tag)}&categoryId=${catId||''}&page=${p}`) }} />
+            </div>
+        );
+    }
+
+    function Pagination({ page, size, total, onChange }){
+        const pages = Math.max(1, Math.ceil((total||0)/size));
+        if (pages<=1) return null;
+        const go = (p)=> onChange(Math.min(pages, Math.max(1, p)));
+        return (
+            <div className="row" style={{justifyContent:'center', marginTop:8}}>
+                <div className="pagination">
+                    <button onClick={()=>go(1)} disabled={page===1}>«</button>
+                    <button onClick={()=>go(page-1)} disabled={page===1}>‹</button>
+                    <span className="pill">Strana {page} / {pages}</span>
+                    <button onClick={()=>go(page+1)} disabled={page===pages}>›</button>
+                    <button onClick={()=>go(pages)} disabled={page===pages}>»</button>
+                </div>
+            </div>
+        );
+    }
+
+
+    function EventDetails({ id, user }){
+        const [e,setE] = useState(null);
+        const [comments,setComments] = useState([]);
+        const [page,setPage] = useState(1);
+        const [total,setTotal] = useState(0);
+        const [newComment,setNewComment] = useState('');
+        const initialAuthor = (u) => (u ? `${u.firstName||''} ${u.lastName||''}`.trim() || u.email : 'Anon');
+        const [author,setAuthor] = useState(initialAuthor(user));
+        useEffect(()=>{ setAuthor(initialAuthor(user)); }, [user, id]);
+
+        const [rsvpEmail,setRsvpEmail] = useState('');
+        const [rsvpCount,setRsvpCount] = useState(0);
+
+
+        const [editing, setEditing] = useState(false);
+        const [cats, setCats] = useState([]);
+        const [fTitle, setFTitle] = useState('');
+        const [fDescription, setFDescription] = useState('');
+        const [fDate, setFDate] = useState('');
+        const [fTime, setFTime] = useState('');
+        const [fLocation, setFLocation] = useState('');
+        const [fMaxCapacity, setFMaxCapacity] = useState('');
+        const [fCategoryId, setFCategoryId] = useState('');
+        const [fTags, setFTags] = useState('');
+
+
+        const [creator, setCreator] = useState(null);
+
+        const load = async ()=>{
+            const d = await api.get(`/api/events/${id}/details`);
+            setE(d);
+
+            const aid = d.authorId ?? d.author_id;
+
+            const fromDetails = {
+                firstName: d.authorFirstName ?? d.author_first_name ?? d.author?.firstName,
+                lastName:  d.authorLastName  ?? d.author_last_name  ?? d.author?.lastName,
+                email:     d.authorEmail     ?? d.author_email      ?? d.author?.email,
+            };
+            if (fromDetails.firstName || fromDetails.lastName || fromDetails.email) {
+                setCreator(fromDetails);
+            } else if (aid) {
+
+                try {
+                    const u = await api.get(`/api/users/${aid}`);
+                    setCreator(u);
+                } catch(_) {
+
+                    if (String(aid) === '1') setCreator({ firstName: 'Administrator', lastName: '', email: '' });
+                    else setCreator(null);
+                }
+            } else {
+                setCreator(null);
+            }
+
+            const c = await api.get(`/api/events/${id}/comments?page=${page}&size=10`);
+            setComments(c.items||[]); setTotal(c.total||0);
+            const rc = await api.get(`/api/events/${id}/rsvps/count`); setRsvpCount(rc.count||0);
+        };
+        useEffect(()=>{ load() },[id,page]);
+
+        useEffect(()=>{ if(editing){ (async()=>{ const cs = await api.get('/api/categories?page=1&size=200'); setCats(cs.items||[]) })() } },[editing]);
+
+        if (!e) return <p>Učitavanje…</p>;
+
+        const like = ()=> api.post(`/api/events/${id}/like`).then(load);
+        const dislike = ()=> api.post(`/api/events/${id}/dislike`).then(load);
+        const addComment = async ()=>{
+            const body = newComment.trim();
+            if (!body) return;
+            const nameToSend = (author && author.trim()) ? author.trim() : 'Anon';
+            await api.post(`/api/events/${id}/comments`, { authorName: nameToSend, body });
+            setNewComment('');
+            if (!user && !author.trim()) setAuthor('Anon');
+            load();
+        };
+        const likeC = (cid)=> api.post(`/api/events/${id}/comments/${cid}/like`).then(load);
+        const dislikeC = (cid)=> api.post(`/api/events/${id}/comments/${cid}/dislike`).then(load);
+
+
+        const rsvp = async ()=>{
+            try{
+                if (!rsvpEmail.trim()) { alert('Unesite ispravan email.'); return; }
+                await api.post(`/api/events/${id}/rsvps`, { email: rsvpEmail });
+                await load();
+                alert('Prijava uspešna. Vidimo se na događaju!');
+            }catch(ex){
+                alert(ex?.data?.message || 'Prijava nije uspela. Proverite podatke ili dostupna mesta.');
+            }
+        };
+        const cancelRsvp = async ()=>{
+            try{
+                if (!rsvpEmail.trim()) { alert('Unesite email da biste otkazali.'); return; }
+                await api.del(`/api/events/${id}/rsvps`, { email: rsvpEmail });
+                await load();
+                alert('Prijava je otkazana.');
+            }catch(ex){
+                alert(ex?.data?.message || 'Otkazivanje nije uspelo.');
+            }
+        };
+
+        const hasCapacity = typeof e.maxCapacity === 'number' && !Number.isNaN(e.maxCapacity);
+        const authorId = e.authorId ?? e.author_id;
+        const canManage = !!user && (user.userType==='ADMIN' || (user.userType==='CREATOR' && authorId === user.id));
+
+        const beginEdit = ()=>{
+            setFTitle(e.title||'');
+            setFDescription(e.description||'');
+            const {date, time} = splitLocalDateTime(e.scheduledAt || e.scheduled_at);
+            setFDate(date); setFTime(time);
+            setFLocation(e.location||'');
+            setFMaxCapacity(e.maxCapacity ?? '');
+            setFCategoryId(String(e.categoryId ?? e.category_id ?? ''));
+            setFTags((e.tags||[]).join(', '));
+            setEditing(true);
+        };
+
+        const cancelEdit = ()=> setEditing(false);
+
+        const saveEdit = async ()=>{
+            try{
+                if (!fTitle.trim() || !fDescription.trim() || !fDate.trim() || !fTime.trim() || !fLocation.trim() || !fCategoryId) {
+                    alert('Sva obavezna polja moraju biti popunjena.'); return;
+                }
+                const payload = {
+                    title: fTitle,
+                    description: fDescription,
+                    scheduledAt: combineLocal(fDate, fTime),
+                    location: fLocation,
+                    maxCapacity: (fMaxCapacity==='' || fMaxCapacity===null) ? null : Number(fMaxCapacity),
+                    categoryId: Number(fCategoryId),
+                    tags: fTags.split(',').map(s=>s.trim()).filter(Boolean)
+                };
+                const updated = await api.put(`/api/ems/events/${id}`, payload);
+                setEditing(false);
+                setE(updated||e);
+                await load();
+                alert('Događaj je izmenjen.');
+            }catch(ex){
+                alert(ex?.data?.message || 'Greška pri izmeni događaja');
+            }
+        };
+
+        const removeEvent = async ()=>{
+            if (!confirm('Da li ste sigurni da želite da obrišete ovaj događaj? Ova radnja je nepovratna.')) return;
+            try{
+                await api.del(`/api/ems/events/${id}`);
+                alert('Događaj je obrisan.');
+                window.location.hash = '/events';
+            }catch(ex){
+                alert(ex?.data?.message || 'Greška pri brisanju događaja');
+            }
+        };
+
+        return (
+            <div className="layout">
+                <div className="grid" style={{gap:16}}>
+                    {/* Upravljačke akcije (samo autor ili admin) */}
+                    {canManage && (
+                        <div className="card">
+                            {!editing ? (
+                                <div className="row" style={{justifyContent:'space-between'}}>
+                                    <div className="row" style={{gap:8}}>
+                                        <button className="btn" onClick={beginEdit}>✏️ Izmeni događaj</button>
+                                        <button className="btn secondary" onClick={removeEvent}>🗑️ Obriši događaj</button>
+                                    </div>
+                                    <span className="pill">ID: {e.id} · Autor #{authorId}</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <h3 style={{marginTop:0}}>Izmena događaja</h3>
+                                    <div className="grid" style={{gap:12}}>
+                                        <label className="field">Naslov
+                                            <input value={fTitle} onChange={e=>setFTitle(e.target.value)} required/>
+                                        </label>
+                                        <label className="field">Opis
+                                            <textarea value={fDescription} onChange={e=>setFDescription(e.target.value)} required/>
+                                        </label>
+                                        <div className="row" style={{gap:12}}>
+                                            <label className="field" style={{flex:1}}>Datum
+                                                <input type="date" value={fDate} onChange={e=>setFDate(e.target.value)} required/>
+                                            </label>
+                                            <label className="field" style={{flex:1}}>Vreme
+                                                <input type="time" step="60" value={fTime} onChange={e=>setFTime(e.target.value)} required/>
+                                            </label>
+                                        </div>
+                                        <div className="row" style={{gap:12}}>
+                                            <label className="field" style={{flex:1}}>Lokacija
+                                                <input value={fLocation} onChange={e=>setFLocation(e.target.value)} required/>
+                                            </label>
+                                            <label className="field" style={{maxWidth:180}}>Max. kapacitet
+                                                <input type="number" value={fMaxCapacity} onChange={e=>setFMaxCapacity(e.target.value)} placeholder="(opciono)"/>
+                                            </label>
+                                            <label className="field" style={{flex:1}}>Kategorija
+                                                <select value={fCategoryId} onChange={e=>setFCategoryId(e.target.value)} required>
+                                                    <option value="">Izaberi…</option>
+                                                    {cats.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <label className="field">Tagovi (zarezom odvojeni)
+                                            <input value={fTags} onChange={e=>setFTags(e.target.value)} placeholder="npr. muzika, rock"/>
+                                        </label>
+                                        <div className="row" style={{gap:8}}>
+                                            <button className="btn" onClick={saveEdit}>Sačuvaj izmene</button>
+                                            <button className="btn secondary" onClick={cancelEdit}>Otkaži</button>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="card">
+                        <div className="row" style={{justifyContent:'space-between'}}>
+                            <h2 style={{margin:0}}>{e.title}</h2>
+                            <span className="badge">{fmtDate(e.scheduledAt||e.scheduled_at)}</span>
+                        </div>
+                        <p className="muted">{e.location}</p>
+                        {/* NOVO: čitljiv prikaz ko je kreirao događaj */}
+                        <p className="muted">
+                            Kreirao: {
+                            creator
+                                ? ([creator.firstName, creator.lastName].filter(Boolean).join(' ') || creator.email || `Korisnik #${authorId}`)
+                                : (String(authorId)==='1' ? 'Administrator' : (e.authorName || `Korisnik #${authorId}`))
+                        }
+                            {creator?.email ? ` · ${creator.email}` : ''}
+                        </p>
+                        <p>{e.description}</p>
+                        <div className="row wrap" style={{gap:8, margin:'8px 0'}}>
+                            {(e.tags||[]).map(t=> (
+                                <a key={t} className="pill" href={`#/events?tag=${encodeURIComponent(t)}`} title={`Prikaži događaje sa #${t}`}>#{t}</a>
+                            ))}
+                        </div>
+                        <div className="row wrap" style={{gap:10}}>
+                            <button className="btn" onClick={like}>👍 Sviđa mi se ({e.likesCount??e.likes_count})</button>
+                            <button className="btn secondary" onClick={dislike}>👎 Ne sviđa mi se ({e.dislikesCount??e.dislikes_count})</button>
+                            <span className="kpi"><span className="num">{e.viewsCount??e.views_count}</span> pregleda</span>
+                            {hasCapacity
+                                ? <span className="kpi">Mesta: <span className="num">{rsvpCount} / {e.maxCapacity}</span></span>
+                                : <span className="kpi">Prijavljeno: <span className="num">{rsvpCount}</span></span>
+                            }
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>Komentari</h3>
+                        <div className="grid" style={{gap:12}}>
+                            {comments.map(c=> (
+                                <div key={c.id} className="row" style={{alignItems:'flex-start', justifyContent:'space-between'}}>
+                                    <div>
+                                        <div className="muted" style={{fontSize:12}}>{c.authorName} · {fmtDate(c.createdAt)}</div>
+                                        <div>{c.body}</div>
+                                        <div className="row" style={{gap:6, marginTop:6}}>
+                                            <button className="btn" onClick={()=>likeC(c.id)}>👍 {c.likesCount}</button>
+                                            <button className="btn secondary" onClick={()=>dislikeC(c.id)}>👎 {c.dislikesCount}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            <Pagination page={page} size={10} total={total} onChange={setPage} />
+
+                            <div className="grid" style={{gap:8}}>
+                                <div className="row" style={{gap:8}}>
+                                    <input
+                                        placeholder="Vaše ime"
+                                        value={author}
+                                        onChange={e=>setAuthor(e.target.value)}
+                                        style={{maxWidth:240}}
+                                    />
+                                </div>
+                                <textarea placeholder="Vaš komentar" value={newComment} onChange={e=>setNewComment(e.target.value)} />
+                                <button className="btn" onClick={addComment}>Pošalji komentar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>RSVP</h3>
+                        <div className="row" style={{gap:8}}>
+                            <input style={{maxWidth:320}} placeholder="Vaš email" value={rsvpEmail} onChange={e=>setRsvpEmail(e.target.value)} />
+                            <button className="btn" onClick={rsvp}>Prijavi se</button>
+                            <button className="btn secondary" onClick={cancelRsvp}>Otkaži prijavu</button>
+                        </div>
+                        <p className="muted">Bićete prijavljeni/odjavljeni za ovaj događaj na osnovu email adrese.</p>
+                    </div>
+                </div>
+
+                <TrendingAside/>
+            </div>
+        );
+    }
+
+
+    function PublicCategories(){
+        const [items,setItems] = useState([]);
+        useEffect(()=>{ (async()=>{ const r = await api.get('/api/categories?page=1&size=100'); setItems(r.items||[]) })() },[]);
+        return (
+            <div className="card">
+                <h2>Kategorije</h2>
+                <table className="table">
+                    <thead><tr><th>ID</th><th>Naziv</th><th>Opis</th></tr></thead>
+                    <tbody>
+                    {items.map(c=> <tr key={c.id}><td>{c.id}</td><td>{c.name}</td><td className="muted">{c.description}</td></tr>)}
+                    </tbody>
+                </table>
+            </div>
+        );
+    }
+
+    //EMS
+    function EmsNewEvent({ user, onCreated }){
+        if (!user || !['ADMIN','CREATOR'].includes(user.userType)) return <Forbidden />;
+        const [title,setTitle] = useState('');
+        const [description,setDescription] = useState('');
+        const [scheduledDate,setScheduledDate] = useState('');
+        const [scheduledTime,setScheduledTime] = useState('');
+        const [location,setLocation] = useState('');
+        const [maxCapacity,setMaxCapacity] = useState('');
+        const [categoryId,setCategoryId] = useState('');
+        const [tags,setTags] = useState('');
+        const [cats,setCats] = useState([]);
+        const [err,setErr] = useState(null);
+
+        useEffect(()=>{ (async()=>{ const r = await api.get('/api/categories?page=1&size=200'); setCats(r.items||[]) })() },[]);
+
+        const submit = async (e)=>{
+            e.preventDefault(); setErr(null);
+            try{
+                if (!scheduledDate || !scheduledTime) { setErr('Unesite datum i vreme.'); return; }
+                const created = await api.post('/api/ems/events', {
+                    title, description,
+                    scheduledAt: combineLocal(scheduledDate, scheduledTime),
+                    location,
+                    maxCapacity: maxCapacity? Number(maxCapacity): null,
+                    categoryId: Number(categoryId),
+                    tags: tags.split(',').map(s=>s.trim()).filter(Boolean)
+                });
+                onCreated?.(created);
+            }catch(ex){ setErr(ex?.data?.message || 'Greška'); }
+        }
+
+        return (
+            <div className="card" style={{maxWidth:720}}>
+                <h2>Novi događaj</h2>
+                <form className="grid" onSubmit={submit}>
+                    <label className="field">Naslov
+                        <input value={title} onChange={e=>setTitle(e.target.value)} required/>
+                    </label>
+                    <label className="field">Opis
+                        <textarea value={description} onChange={e=>setDescription(e.target.value)} required/>
+                    </label>
+                    <div className="row" style={{gap:12}}>
+                        <label className="field" style={{flex:1}}>Datum
+                            <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} required/>
+                        </label>
+                        <label className="field" style={{flex:1}}>Vreme
+                            <input type="time" step="60" value={scheduledTime} onChange={e=>setScheduledTime(e.target.value)} required/>
+                        </label>
+                    </div>
+                    <div className="row" style={{gap:12}}>
+                        <label className="field" style={{flex:1}}>Lokacija
+                            <input value={location} onChange={e=>setLocation(e.target.value)} required/>
+                        </label>
+                        <label className="field" style={{maxWidth:180}}>Max. kapacitet
+                            <input type="number" value={maxCapacity} onChange={e=>setMaxCapacity(e.target.value)} placeholder="(opciono)"/>
+                        </label>
+                    </div>
+                    <label className="field">Kategorija
+                        <select value={categoryId} onChange={e=>setCategoryId(e.target.value)} required>
+                            <option value="">Izaberi…</option>
+                            {cats.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </label>
+                    <label className="field">Tagovi (zarezom odvojeni)
+                        <input value={tags} onChange={e=>setTags(e.target.value)} placeholder="npr. muzika, rock"/>
+                    </label>
+                    {err && <div className="badge" style={{borderColor:'rgba(239,68,68,.5)', color:'#fecaca', background:'#2a0f14'}}>{err}</div>}
+                    <button className="btn">Kreiraj</button>
+                </form>
+            </div>
+        );
+    }
+
+    //EMS Kategorije
+    function EmsCategories({ user }){
+        if (!user || !['ADMIN','CREATOR'].includes(user.userType)) return <Forbidden />;
+        const [items,setItems] = useState([]);
+        const [name,setName] = useState('');
+        const [description,setDescription] = useState('');
+        const [editingId,setEditingId] = useState(null);
+        const [editName,setEditName] = useState('');
+        const [editDescription,setEditDescription] = useState('');
+        const [q,setQ] = useState('');
+
+        const load = async()=>{
+            const url = new URL('/api/categories', window.location.origin);
+            url.searchParams.set('page', 1);
+            url.searchParams.set('size', 100);
+            if (q) url.searchParams.set('q', q);
+            const r = await api.get(url.toString());
+            setItems(r.items||[]);
+        };
+        useEffect(()=>{ load() },[q]);
+
+        const create = async (e)=>{
+            e.preventDefault();
+            try {
+                await api.post('/api/categories', { name, description });
+                setName(''); setDescription('');
+                await load();
+                alert('Kategorija je kreirana.');
+            } catch(ex) {
+                alert(ex?.data?.message || 'Greška pri kreiranju kategorije');
+            }
+        };
+
+        const canAct = (c) => {
+            const ownerId = c.createdBy ?? c.created_by;
+            return user.userType === 'ADMIN' || ownerId === user.id;
+        };
+
+        const beginEdit = (c) => {
+            if (!canAct(c)) { alert('Samo vlasnik ili admin može izmeniti kategoriju.'); return; }
+            setEditingId(c.id);
+            setEditName(c.name);
+            setEditDescription(c.description);
+        };
+
+        const cancelEdit = () => {
+            setEditingId(null);
+            setEditName('');
+            setEditDescription('');
+        };
+
+        const saveEdit = async (id) => {
+            try {
+                await api.put(`/api/categories/${id}`, { name: editName, description: editDescription });
+                await load();
+                cancelEdit();
+                alert('Kategorija je izmenjena.');
+            } catch(ex) {
+                alert(ex?.data?.message || 'Greška pri izmeni kategorije');
+            }
+        };
+
+        const remove = async (c) => {
+            if (!canAct(c)) { alert('Samo vlasnik ili admin može obrisati kategoriju.'); return; }
+            const eventsCount = c.eventsCount ?? c.events_count ?? 0;
+            if (eventsCount > 0) { alert('Brisanje nije dozvoljeno: postoje događaji u ovoj kategoriji.'); return; }
+            if (!window.confirm('Da li ste sigurni da želite da obrišete ovu kategoriju?')) return;
+            try {
+                await api.del(`/api/categories/${c.id}`);
+                await load();
+                alert('Kategorija je obrisana.');
+            } catch(ex) {
+                alert(ex?.data?.message || 'Kategorija ne može da se obriše.');
+            }
+        };
+
+        return (
+            <div className="grid" style={{gap:16}}>
+                <div className="card" style={{maxWidth:720}}>
+                    <h2>Nova kategorija</h2>
+                    <form className="grid" onSubmit={create}>
+                        <div className="row" style={{gap:12}}>
+                            <label className="field" style={{flex:1}}>Naziv
+                                <input value={name} onChange={e=>setName(e.target.value)} required/>
+                            </label>
+                            <label className="field" style={{flex:2}}>Opis
+                                <input value={description} onChange={e=>setDescription(e.target.value)} required/>
+                            </label>
+                        </div>
+                        <button className="btn">Snimi</button>
+                    </form>
+                </div>
+
+                <div className="card">
+                    <div className="toolbar">
+                        <input placeholder="Pretraga kategorija…" value={q} onChange={e=>setQ(e.target.value)} />
+                    </div>
+                    <h2>Postojeće</h2>
+                    <table className="table">
+                        <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Naziv</th>
+                            <th>Opis</th>
+                            <th>Događaja</th>
+                            <th>Akcije</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {items.map(c=> {
+                            const eventsCount = c.eventsCount ?? c.events_count ?? 0;
+                            const allowed = canAct(c);
+                            const isEditing = editingId === c.id;
+                            return (
+                                <tr key={c.id}>
+                                    <td>{c.id}</td>
+                                    <td>
+                                        {isEditing
+                                            ? <input value={editName} onChange={e=>setEditName(e.target.value)} />
+                                            : c.name}
+                                    </td>
+                                    <td>
+                                        {isEditing
+                                            ? <input value={editDescription} onChange={e=>setEditDescription(e.target.value)} />
+                                            : <span className="muted">{c.description}</span>}
+                                    </td>
+                                    <td><span className="badge">{eventsCount}</span></td>
+                                    <td>
+                                        {isEditing ? (
+                                            <div className="row">
+                                                <button className="btn" onClick={()=>saveEdit(c.id)}>Sačuvaj</button>
+                                                <button className="btn secondary" onClick={cancelEdit}>Otkaži</button>
+                                            </div>
+                                        ) : (
+                                            allowed ? (
+                                                <div className="row">
+                                                    <button className="btn" onClick={()=>beginEdit(c)}>Izmeni</button>
+                                                    <button
+                                                        className="btn secondary"
+                                                        disabled={eventsCount > 0}
+                                                        title={eventsCount>0 ? 'Postoje događaji u kategoriji' : ''}
+                                                        onClick={()=>remove(c)}
+                                                    >
+                                                        Obriši
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="pill">Nema dozvolu</span>
+                                            )
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                        </tbody>
+                    </table>
+                    <p className="muted" style={{marginTop:8}}>
+                        Napomena: Brisanje nije dozvoljeno ako postoje događaji u kategoriji. Admin uvek može menjati, a brisati samo prazne kategorije.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    //ADMIN: Korisnici
+    function AdminUsers({ user }){
+        if (!user || user.userType!=='ADMIN') return <Forbidden />;
+        const [items,setItems] = useState([]);
+        const [page,setPage] = useState(1);
+        const [total,setTotal] = useState(0);
+        const [q,setQ] = useState('');
+
+        const [cFirst,setCFirst] = useState('');
+        const [cLast,setCLast]   = useState('');
+        const [cEmail,setCEmail] = useState('');
+        const [cType,setCType]   = useState('CREATOR');
+        const [cPass,setCPass]   = useState('');
+        const [cPass2,setCPass2] = useState('');
+        const [cActive,setCActive] = useState(true);
+
+        const [editingId,setEditingId] = useState(null);
+        const [eFirst,setEFirst] = useState('');
+        const [eLast,setELast]   = useState('');
+        const [eEmail,setEEmail] = useState('');
+        const [eType,setEType]   = useState('CREATOR');
+
+        const load = async()=>{
+            const url = new URL('/api/users', window.location.origin);
+            url.searchParams.set('page',page);
+            url.searchParams.set('size',10);
+            if(q) url.searchParams.set('q',q);
+            const r = await api.get(url.toString());
+            setItems(r.items||[]); setTotal(r.total||0)
+        };
+        useEffect(()=>{ load() },[page,q]);
+
+        // create
+        const submitCreate = async (e)=>{
+            e.preventDefault();
+            if (!cFirst.trim() || !cLast.trim() || !cEmail.trim() || !cPass) { alert('Sva polja su obavezna.'); return; }
+            if (cPass !== cPass2) { alert('Lozinke se ne poklapaju.'); return; }
+            try{
+                await api.post('/api/users', {
+                    firstName: cFirst, lastName: cLast, email: cEmail,
+                    userType: cType, password: cPass,
+                    status: cActive ? 'ACTIVE' : 'INACTIVE'
+                });
+                setCFirst(''); setCLast(''); setCEmail(''); setCType('CREATOR'); setCPass(''); setCPass2(''); setCActive(true);
+                await load();
+                alert('Korisnik je kreiran.');
+            }catch(ex){
+                alert(ex?.data?.message || 'Greška pri kreiranju korisnika');
+            }
+        };
+
+        // edit
+        const beginEdit = (u)=>{
+            setEditingId(u.id);
+            setEFirst(u.firstName||'');
+            setELast(u.lastName||'');
+            setEEmail(u.email||'');
+            setEType(u.userType||'CREATOR');
+        };
+        const cancelEdit = ()=>{
+            setEditingId(null); setEFirst(''); setELast(''); setEEmail(''); setEType('CREATOR');
+        };
+        const saveEdit = async (id)=>{
+            if (!eFirst.trim() || !eLast.trim() || !eEmail.trim() || !eType) { alert('Popunite sva polja.'); return; }
+            try{
+                await api.put(`/api/users/${id}`, {
+                    firstName: eFirst, lastName: eLast, email: eEmail, userType: eType
+                });
+                await load();
+                cancelEdit();
+                alert('Promene su sačuvane.');
+            }catch(ex){
+                alert(ex?.data?.message || 'Greška pri izmeni korisnika');
+            }
+        };
+
+        // activate/deactivate
+        const toggleActive = async (u)=>{
+            if (u.userType === 'ADMIN') return; // UI zaštita: admin uvek aktivan
+            const active = u.status !== 'ACTIVE';
+            try{
+                await api.patch(`/api/users/${u.id}/status`, { active });
+                await load();
+                alert(active ? 'Korisnik je aktiviran.' : 'Korisnik je deaktiviran.');
+            }catch(ex){
+                alert(ex?.data?.message || 'Greška pri promeni statusa');
+            }
+        };
+
+        return (
+            <div className="grid" style={{gap:16}}>
+                {/* Kreiranje novog korisnika */}
+                <div className="card" style={{maxWidth:900}}>
+                    <h2>Dodaj novog korisnika</h2>
+                    <form className="grid" onSubmit={submitCreate}>
+                        <div className="row" style={{gap:12}}>
+                            <label className="field" style={{flex:1}}>Ime
+                                <input value={cFirst} onChange={e=>setCFirst(e.target.value)} required />
+                            </label>
+                            <label className="field" style={{flex:1}}>Prezime
+                                <input value={cLast} onChange={e=>setCLast(e.target.value)} required />
+                            </label>
+                            <label className="field" style={{flex:2}}>Email
+                                <input type="email" value={cEmail} onChange={e=>setCEmail(e.target.value)} required />
+                            </label>
+                        </div>
+                        <div className="row" style={{gap:12}}>
+                            <label className="field" style={{flex:1}}>Tip
+                                <select value={cType} onChange={e=>setCType(e.target.value)}>
+                                    <option value="CREATOR">CREATOR</option>
+                                    <option value="ADMIN">ADMIN</option>
+                                </select>
+                            </label>
+                            <label className="field" style={{flex:1}}>Lozinka
+                                <input type="password" value={cPass} onChange={e=>setCPass(e.target.value)} required />
+                            </label>
+                            <label className="field" style={{flex:1}}>Potvrda lozinke
+                                <input type="password" value={cPass2} onChange={e=>setCPass2(e.target.value)} required />
+                            </label>
+                            <label className="field" style={{flex:1}}>Status
+                                <div className="row">
+                                    <input id="cActive" type="checkbox" checked={cActive} onChange={e=>setCActive(e.target.checked)} />
+                                    <label htmlFor="cActive">Aktivan odmah</label>
+                                </div>
+                            </label>
+                        </div>
+                        <button className="btn">Dodaj korisnika</button>
+                        <p className="muted">Napomena: Admin je uvek aktivan; status se primenjuje samo na creatore.</p>
+                    </form>
+                </div>
+
+                {/* Pretraga */}
+                <div className="card">
+                    <div className="toolbar">
+                        <input placeholder="Pretraga (ime, prezime, email)..." value={q} onChange={e=>{ setQ(e.target.value); setPage(1) }} />
+                        <span className="spacer"></span>
+                    </div>
+                </div>
+
+                {/* Lista korisnika */}
+                <div className="card">
+                    <table className="table">
+                        <thead>
+                        <tr>
+                            <th style={{width:70}}>ID</th>
+                            <th>Email</th>
+                            <th>Ime</th>
+                            <th>Prezime</th>
+                            <th>Tip</th>
+                            <th>Status</th>
+                            <th style={{width:260}}>Akcije</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {items.map(u=> {
+                            const editing = editingId === u.id;
+                            const isAdmin = u.userType === 'ADMIN';
+                            return (
+                                <tr key={u.id}>
+                                    <td>{u.id}</td>
+                                    <td>
+                                        {editing ? <input value={eEmail} onChange={e=>setEEmail(e.target.value)} />
+                                            : u.email}
+                                    </td>
+                                    <td>
+                                        {editing ? <input value={eFirst} onChange={e=>setEFirst(e.target.value)} />
+                                            : u.firstName}
+                                    </td>
+                                    <td>
+                                        {editing ? <input value={eLast} onChange={e=>setELast(e.target.value)} />
+                                            : u.lastName}
+                                    </td>
+                                    <td>
+                                        {editing ? (
+                                            <select value={eType} onChange={e=>setEType(e.target.value)}>
+                                                <option value="CREATOR">CREATOR</option>
+                                                <option value="ADMIN">ADMIN</option>
+                                            </select>
+                                        ) : u.userType}
+                                    </td>
+                                    <td>
+                                    <span className="badge" style={{borderColor: u.status==='ACTIVE'?'rgba(34,197,94,.4)':'rgba(239,68,68,.4)'}}>
+                                        {u.status}
+                                    </span>
+                                    </td>
+                                    <td>
+                                        {editing ? (
+                                            <div className="row">
+                                                <button className="btn" onClick={()=>saveEdit(u.id)}>Sačuvaj</button>
+                                                <button className="btn secondary" onClick={cancelEdit}>Otkaži</button>
+                                            </div>
+                                        ) : (
+                                            <div className="row">
+                                                <button className="btn" onClick={()=>beginEdit(u)}>Izmeni</button>
+                                                <button
+                                                    className="btn secondary"
+                                                    disabled={isAdmin}
+                                                    title={isAdmin ? 'Admin je uvek aktivan' : (u.status==='ACTIVE'?'Deaktiviraj korisnika':'Aktiviraj korisnika')}
+                                                    onClick={()=>toggleActive(u)}
+                                                >
+                                                    {u.userType==='ADMIN' ? '—' : (u.status==='ACTIVE' ? 'Deaktiviraj' : 'Aktiviraj')}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                        </tbody>
+                    </table>
+                    <Pagination page={page} size={10} total={total} onChange={setPage} />
+                </div>
+            </div>
+        );
+    }
+
+
+    function Forbidden(){
+        return <div className="card" style={{maxWidth:520}}><h2>Zabranjen pristup</h2><p className="muted">Potrebna je odgovarajuća uloga ili prijava.</p><a className="btn" href="#/login">Idi na prijavu</a></div>
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
